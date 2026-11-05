@@ -123,17 +123,6 @@ sleep-disorder-prediction/
 
 ---
 
-## ▶️ How to Run
-
-```bash
-git clone https://github.com/<your-username>/sleep-disorder-prediction.git
-cd sleep-disorder-prediction
-pip install -r requirements.txt
-jupyter notebook notebooks/sleep_disorder_prediction.ipynb
-```
-
----
-
 ## 🚀 Future Enhancements
 
 - Improve accuracy with more data and better feature selection.
