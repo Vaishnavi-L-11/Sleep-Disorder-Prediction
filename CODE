@@ -1,0 +1,403 @@
+
+# STEP 1: IMPORT LIBRARIES
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.impute import SimpleImputer
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
+
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.ensemble import RandomForestClassifier
+
+from sklearn.metrics import (
+    accuracy_score,
+    precision_score,
+    recall_score,
+    f1_score,
+    classification_report,
+    ConfusionMatrixDisplay
+)
+
+# ============================================================
+# STEP 2: LOAD DATASET
+# ============================================================
+
+df = pd.read_csv(r"C:\Users\lvais\OneDrive\Pictures\Documents\sleep_health_dataset(1).csv")
+
+print("\nDATASET LOADED SUCCESSFULLY")
+print(df.head())
+
+print("\nDataset Shape:", df.shape)
+
+# ============================================================
+# STEP 3: DATA PREPROCESSING
+# ============================================================
+
+# Treat missing sleep disorder labels as No Disorder
+df["Sleep Disorder"] = df["Sleep Disorder"].fillna(
+    "No Disorder"
+)
+
+# Split blood pressure into two columns
+bp = df["Blood Pressure"].astype(str).str.split(
+    "/", expand=True
+)
+
+df["Systolic BP"] = pd.to_numeric(
+    bp[0], errors="coerce"
+)
+
+df["Diastolic BP"] = pd.to_numeric(
+    bp[1], errors="coerce"
+)
+
+# Remove unnecessary columns
+df.drop(
+    columns=["Person ID", "Blood Pressure"],
+    inplace=True
+)
+
+# Separate input and target
+X = df.drop("Sleep Disorder", axis=1)
+y = df["Sleep Disorder"]
+
+# Identify numerical and categorical features
+numeric_features = X.select_dtypes(
+    include=["number"]
+).columns.tolist()
+
+categorical_features = X.select_dtypes(
+    include=["object"]
+).columns.tolist()
+
+# ============================================================
+# STEP 4: PREPROCESSING PIPELINE
+# ============================================================
+
+numeric_transformer = Pipeline([
+    ("imputer", SimpleImputer(strategy="median")),
+    ("scaler", StandardScaler())
+])
+
+categorical_transformer = Pipeline([
+    ("imputer", SimpleImputer(strategy="most_frequent")),
+    ("encoder", OneHotEncoder(handle_unknown="ignore"))
+])
+
+preprocessor = ColumnTransformer([
+    ("numeric", numeric_transformer, numeric_features),
+    ("categorical", categorical_transformer,
+     categorical_features)
+])
+
+# ============================================================
+# STEP 5: TRAIN TEST SPLIT
+# ============================================================
+
+X_train, X_test, y_train, y_test = train_test_split(
+    X,
+    y,
+    test_size=0.20,
+    random_state=42,
+    stratify=y
+)
+
+print("\nTraining records:", len(X_train))
+print("Testing records:", len(X_test))
+
+# ============================================================
+# STEP 6: DECISION TREE MODEL
+# ============================================================
+
+decision_tree = Pipeline([
+    ("preprocessing", preprocessor),
+    ("classifier", DecisionTreeClassifier(
+        random_state=42,
+        class_weight="balanced"
+    ))
+])
+
+decision_tree.fit(X_train, y_train)
+
+dt_prediction = decision_tree.predict(X_test)
+
+# ============================================================
+# STEP 7: RANDOM FOREST MODEL
+# HYPERPARAMETER TUNING
+# ============================================================
+
+random_forest = Pipeline([
+    ("preprocessing", preprocessor),
+    ("classifier", RandomForestClassifier(
+        random_state=42,
+        class_weight="balanced"
+    ))
+])
+
+parameters = {
+    "classifier__n_estimators": [200, 300, 500],
+    "classifier__max_depth": [5, 10, 15, None],
+    "classifier__min_samples_split": [2, 5],
+    "classifier__min_samples_leaf": [1, 2]
+}
+
+grid_search = GridSearchCV(
+    random_forest,
+    parameters,
+    cv=5,
+    scoring="f1_macro",
+    n_jobs=-1
+)
+
+grid_search.fit(X_train, y_train)
+
+best_random_forest = grid_search.best_estimator_
+
+rf_prediction = best_random_forest.predict(X_test)
+
+print("\nBEST RANDOM FOREST PARAMETERS:")
+print(grid_search.best_params_)
+
+# ============================================================
+# STEP 8: ALGORITHM COMPARISON
+# ============================================================
+
+models = {
+    "Decision Tree": decision_tree,
+    "Random Forest": best_random_forest
+}
+
+results = []
+
+for name, model in models.items():
+
+    prediction = model.predict(X_test)
+
+    accuracy = accuracy_score(y_test, prediction)
+
+    precision = precision_score(
+        y_test,
+        prediction,
+        average="macro",
+        zero_division=0
+    )
+
+    recall = recall_score(
+        y_test,
+        prediction,
+        average="macro",
+        zero_division=0
+    )
+
+    f1 = f1_score(
+        y_test,
+        prediction,
+        average="macro",
+        zero_division=0
+    )
+
+    results.append({
+        "Algorithm": name,
+        "Accuracy": accuracy,
+        "Precision": precision,
+        "Recall": recall,
+        "F1 Score": f1
+    })
+
+result_df = pd.DataFrame(results)
+
+print("\n======================================")
+print("MACHINE LEARNING ALGORITHM COMPARISON")
+print("======================================")
+
+print(result_df.to_string(index=False))
+
+# ============================================================
+# STEP 9: SELECT BEST ALGORITHM
+# ============================================================
+
+best_index = result_df["F1 Score"].idxmax()
+
+best_algorithm = result_df.loc[
+    best_index, "Algorithm"
+]
+
+if best_algorithm == "Random Forest":
+    best_model = best_random_forest
+else:
+    best_model = decision_tree
+
+print("\nBEST PERFORMING ALGORITHM:", best_algorithm)
+
+# ============================================================
+# STEP 10: GRAPH 1 - ALGORITHM COMPARISON
+# ============================================================
+
+plt.figure(figsize=(9, 5))
+
+x = np.arange(len(result_df))
+width = 0.35
+
+plt.bar(
+    x - width / 2,
+    result_df["Accuracy"],
+    width,
+    label="Accuracy"
+)
+
+plt.bar(
+    x + width / 2,
+    result_df["F1 Score"],
+    width,
+    label="Macro F1 Score"
+)
+
+plt.xticks(x, result_df["Algorithm"])
+
+plt.ylabel("Performance Score")
+
+plt.xlabel("Algorithms")
+
+plt.title("Decision Tree vs Random Forest")
+
+plt.ylim(0, 1)
+
+plt.legend()
+
+plt.grid(axis="y", alpha=0.3)
+
+plt.tight_layout()
+
+plt.show()
+
+# ============================================================
+# STEP 11: GRAPH 2 - CONFUSION MATRIX
+# ============================================================
+
+best_prediction = best_model.predict(X_test)
+
+ConfusionMatrixDisplay.from_predictions(
+    y_test,
+    best_prediction,
+    labels=["No Disorder", "Insomnia", "Sleep Apnea"],
+    cmap="Blues",
+    xticks_rotation=20
+)
+
+plt.title("Confusion Matrix - " + best_algorithm)
+
+plt.tight_layout()
+
+plt.show()
+
+# ============================================================
+# STEP 12: CLASSIFICATION REPORT
+# ============================================================
+
+print("\nCLASSIFICATION REPORT")
+
+print(
+    classification_report(
+        y_test,
+        best_prediction,
+        labels=["No Disorder", "Insomnia", "Sleep Apnea"],
+        zero_division=0
+    )
+)
+
+# ============================================================
+# STEP 13: FOUR USER INPUTS
+# ============================================================
+
+print("\n======================================")
+print("       SLEEP DISORDER PREDICTION")
+print("======================================")
+
+gender = input(
+    "Enter Gender (Female/Male): "
+).strip().capitalize()
+
+age = float(input("Enter Age: "))
+
+sleep_duration = float(
+    input("Enter Sleep Duration (hours): ")
+)
+
+stress_level = float(
+    input("Enter Stress Level (1-10): ")
+)
+
+# ============================================================
+# STEP 14: CREATE NEW PERSON DATA
+# ============================================================
+
+# Use training-set statistics for unentered features.
+new_person = {}
+
+for col in X.columns:
+
+    if col in numeric_features:
+        new_person[col] = X_train[col].median()
+
+    else:
+        new_person[col] = X_train[col].mode().iloc[0]
+
+# Replace the four user-provided values
+new_person["Gender"] = gender
+new_person["Age"] = age
+new_person["Sleep Duration"] = sleep_duration
+new_person["Stress Level"] = stress_level
+
+new_person_df = pd.DataFrame(
+    [new_person],
+    columns=X.columns
+)
+
+# ============================================================
+# STEP 15: PREDICTION USING BOTH ALGORITHMS
+# ============================================================
+
+dt_result = decision_tree.predict(
+    new_person_df
+)[0]
+
+rf_result = best_random_forest.predict(
+    new_person_df
+)[0]
+
+# ============================================================
+# STEP 16: DISPLAY FINAL PREDICTION
+# ============================================================
+
+print("\n======================================")
+print("          PREDICTION RESULT")
+print("======================================")
+
+print("Gender:", gender)
+print("Age:", age)
+print("Sleep Duration:", sleep_duration)
+print("Stress Level:", stress_level)
+
+print("\nDecision Tree Prediction:", dt_result)
+
+print("Random Forest Prediction:", rf_result)
+
+print("\nSelected Best Algorithm:", best_algorithm)
+
+if best_algorithm == "Random Forest":
+    final_prediction = rf_result
+else:
+    final_prediction = dt_result
+
+print("\nFINAL SLEEP DISORDER PREDICTION:",
+      final_prediction)
+
+print("======================================")
+
+print("This is an educational ML prediction,")
+print("not a medical diagnosis.")
